@@ -9,12 +9,10 @@ st.title("🎙️ Live Audio Meeting Minutes & Action Points")
 st.caption("Record live audio, transcribe instantly, and let AI summarize your key deliverables.")
 
 # --- API Configuration ---
-# Sidebar for secure API management
 with st.sidebar:
     st.header("🔑 Configuration")
     api_key = st.text_input("OpenAI API Key", type="password", help="Grab your key from platform.openai.com")
     
-    # Simple instructions inside the sidebar
     st.markdown("---")
     st.markdown("""
     ### 💡 How to use:
@@ -40,6 +38,8 @@ if "summary" not in st.session_state:
     st.session_state.summary = ""
 if "action_points" not in st.session_state:
     st.session_state.action_points = ""
+if "last_processed_audio" not in st.session_state:
+    st.session_state.last_processed_audio = None
 
 # --- Layout Columns ---
 col_input, col_output = st.columns([1, 1], gap="large")
@@ -47,25 +47,23 @@ col_input, col_output = st.columns([1, 1], gap="large")
 with col_input:
     st.subheader("🔊 Audio Input & Processing")
     
-    # Native Streamlit audio recorder (sets 16kHz sample rate optimal for speech recognition)
+    # Native Streamlit audio recorder
     audio_file = st.audio_input("Record your live discussion here")
     
-    if audio_file is not None:
-        # Show a processing spinner
+    # Only run the heavy API pipeline if there is a new audio file recording
+    if audio_file is not None and audio_file != st.session_state.last_processed_audio:
+        # Show a processing spinner for transcription
         with st.spinner("Processing your audio transcription..."):
             try:
-                # Read the bytes buffer from the Streamlit UploadedFile object
                 audio_bytes = audio_file.read()
                 
-                # Whisper requires a named file format, so we pass standard metadata name
-                # using the client.audio.transcriptions API
                 transcription_response = client.audio.transcriptions.create(
                     model="whisper-1", 
                     file=("live_meeting.wav", audio_bytes, "audio/wav")
                 )
                 
                 st.session_state.transcript = transcription_response.text
-                st.success("🎉 Transcription complete!")
+                st.session_state.last_processed_audio = audio_file  # Mark this file as processed
                 
             except Exception as e:
                 st.error(f"Error during transcription: {e}")
@@ -75,7 +73,6 @@ with col_input:
         if st.session_state.transcript:
             with st.spinner("Analyzing discussion & building action plan..."):
                 try:
-                    # Formulate system instructions to structure the summary
                     system_prompt = (
                         "You are an expert executive assistant. Take the meeting transcript provided "
                         "and generate two distinct outputs: \n"
@@ -97,7 +94,6 @@ with col_input:
                     
                     # Rudimentary separation of Summary and Action items for split UI display
                     if "action" in full_analysis.lower():
-                        # Try to split if the AI outputs structured headers
                         parts = full_analysis.split("\n\n")
                         st.session_state.summary = parts[0]
                         st.session_state.action_points = "\n\n".join(parts[1:])
@@ -121,7 +117,6 @@ with col_output:
         st.info(st.session_state.summary if st.session_state.summary else "Awaiting processing...")
         
         st.markdown("### 🚀 Action Items & Deliverables")
-        # Visual styling callout box for clarity
         st.success(st.session_state.action_points if st.session_state.action_points else "Awaiting processing...")
         
         # Add a download feature for documentation
@@ -136,4 +131,5 @@ with col_output:
             mime="text/markdown"
         )
     else:
-        st.light("Your AI insights, summaries, and highlighted items will show up right here once you record and save audio.")
+        # FIXED: Changed from st.light to standard markdown notice block
+        st.info("Your AI insights, summaries, and highlighted items will show up right here once you record and save audio.")
