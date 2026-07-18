@@ -1,37 +1,35 @@
 import streamlit as st
-from openai import OpenAI
-import os
+from google import genai
+from google.genai import types
 
 # --- Page Config & Styling ---
-st.set_page_config(page_title="Meeting Minutes AI", page_icon="🎙️", layout="wide")
+st.set_page_config(page_title="Meeting Minutes AI (Gemini)", page_icon="🎙️", layout="wide")
 
-st.title("🎙️ Live Audio Meeting Minutes & Action Points")
-st.caption("Record live audio, transcribe instantly, and let AI summarize your key deliverables.")
+st.title("🎙️ Gemini Audio Meeting Minutes & Action Points")
+st.caption("Record live audio and leverage Gemini's native audio intelligence to transcribe, summarize, and highlight targets.")
 
-# --- API Configuration ---
-with st.sidebar:
-    st.header("🔑 Configuration")
-    api_key = st.text_input("OpenAI API Key", type="password", help="Grab your key from platform.openai.com")
-    
-    st.markdown("---")
+# --- API Configuration via Streamlit Secrets ---
+# Looks for GEMINI_API_KEY in Streamlit Community Cloud secrets or your local secrets.toml file
+if "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
+elif "gemini" in st.secrets and "api_key" in st.secrets["gemini"]: # Fallback structure style
+    api_key = st.secrets["gemini"]["api_key"]
+else:
+    st.error("🔑 **API Key Missing:** Please configure your `GEMINI_API_KEY` inside your Streamlit Secrets.")
     st.markdown("""
-    ### 💡 How to use:
-    1. Paste your OpenAI API Key.
-    2. Click **Record** on the microphone widget below.
-    3. Speak your meeting notes or discussion details.
-    4. Click **Stop** to let the AI process the transcription, generate summaries, and highlight action items!
+    ### 🛠️ How to fix this:
+    * **Locally:** Create a directory named `.streamlit/` in your project folder, add a file named `secrets.toml`, and write: `GEMINI_API_KEY = "your_actual_api_key_here"`
+    * **On Streamlit Community Cloud:** Go to your App Dashboard -> App Settings -> Secrets, and add:
+    ```toml
+    GEMINI_API_KEY = "your_actual_api_key_here"
+    ```
     """)
-
-# Check for API key before continuing
-if not api_key:
-    st.warning("Please enter your OpenAI API key in the sidebar to get started.")
     st.stop()
 
-# Initialize OpenAI client
-client = OpenAI(api_key=api_key)
+# Initialize the modern Google Gen AI client with the secure key
+client = genai.Client(api_key=api_key)
 
 # --- Initialize Session States ---
-# We store results in state so they don't disappear when Streamlit re-renders
 if "transcript" not in st.session_state:
     st.session_state.transcript = ""
 if "summary" not in st.session_state:
@@ -50,67 +48,66 @@ with col_input:
     # Native Streamlit audio recorder
     audio_file = st.audio_input("Record your live discussion here")
     
-    # Only run the heavy API pipeline if there is a new audio file recording
+    # Only run the pipeline if there is a new audio file recording
     if audio_file is not None and audio_file != st.session_state.last_processed_audio:
-        # Show a processing spinner for transcription
-        with st.spinner("Processing your audio transcription..."):
+        with st.spinner("Gemini is listening and analyzing the audio..."):
             try:
                 audio_bytes = audio_file.read()
                 
-                transcription_response = client.audio.transcriptions.create(
-                    model="whisper-1", 
-                    file=("live_meeting.wav", audio_bytes, "audio/wav")
+                # Setup structured generation instructions using a System Prompt
+                config = types.GenerateContentConfig(
+                    system_instruction=(
+                        "You are an expert executive assistant. Analyze the audio provided. "
+                        "First, write down an accurate word-for-word transcript. "
+                        "Second, write a concise paragraph summary of the key talking points. "
+                        "Third, highlight action items with bolded names and responsibilities. "
+                        "Separate sections cleanly using the labels [TRANSCRIPT], [SUMMARY], and [ACTIONS]."
+                    ),
+                    temperature=0.4,
                 )
                 
-                st.session_state.transcript = transcription_response.text
-                st.session_state.last_processed_audio = audio_file  # Mark this file as processed
+                # Gemini accepts binary audio data inline via types.Part.from_bytes
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=[
+                        types.Part.from_bytes(
+                            data=audio_bytes,
+                            mime_type="audio/wav"
+                        ),
+                        "Process this meeting audio according to your system instructions."
+                    ],
+                    config=config
+                )
+                
+                full_text = response.text
+                st.session_state.last_processed_audio = audio_file
+                
+                # Parse the response text out into its respective blocks safely
+                if "[TRANSCRIPT]" in full_text and "[SUMMARY]" in full_text and "[ACTIONS]" in full_text:
+                    parts_ts = full_text.split("[TRANSCRIPT]")
+                    parts_sum = parts_ts[1].split("[SUMMARY]")
+                    parts_act = parts_sum[1].split("[ACTIONS]")
+                    
+                    st.session_state.transcript = parts_sum[0].strip()
+                    st.session_state.summary = parts_act[0].strip()
+                    st.session_state.action_points = parts_act[1].strip()
+                else:
+                    # Fallback parsing if structure deviates slightly
+                    st.session_state.transcript = "Please see full output on the right column."
+                    st.session_state.summary = full_text
+                    st.session_state.action_points = "Check summary details above."
                 
             except Exception as e:
-                st.error(f"Error during transcription: {e}")
+                st.error(f"Error during Gemini processing: {e}")
                 st.stop()
-
-        # Generate Insights if a transcript exists
-        if st.session_state.transcript:
-            with st.spinner("Analyzing discussion & building action plan..."):
-                try:
-                    system_prompt = (
-                        "You are an expert executive assistant. Take the meeting transcript provided "
-                        "and generate two distinct outputs: \n"
-                        "1. A concise, paragraph-based summary of the main discussion points.\n"
-                        "2. A clear bulleted list of actionable items or deliverables, explicitly bolding "
-                        "names, responsibilities, or deadlines if mentioned."
-                    )
-                    
-                    response = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": f"Transcript:\n{st.session_state.transcript}"}
-                        ],
-                        temperature=0.5
-                    )
-                    
-                    full_analysis = response.choices[0].message.content
-                    
-                    # Rudimentary separation of Summary and Action items for split UI display
-                    if "action" in full_analysis.lower():
-                        parts = full_analysis.split("\n\n")
-                        st.session_state.summary = parts[0]
-                        st.session_state.action_points = "\n\n".join(parts[1:])
-                    else:
-                        st.session_state.summary = full_analysis
-                        st.session_state.action_points = "No specific action items detected."
-                        
-                except Exception as e:
-                    st.error(f"AI Analytics error: {e}")
 
     # Display the raw text transcript if generated
     if st.session_state.transcript:
-        st.markdown("### 📝 Raw Transcript")
+        st.markdown("### 📝 Text Transcript")
         st.text_area("Full text generated from speech:", st.session_state.transcript, height=250)
 
 with col_output:
-    st.subheader("💡 AI Post-Meeting Analysis")
+    st.subheader("💡 Gemini Post-Meeting Analysis")
     
     if st.session_state.summary or st.session_state.action_points:
         st.markdown("### 📌 Discussion Summary")
@@ -131,5 +128,4 @@ with col_output:
             mime="text/markdown"
         )
     else:
-        # FIXED: Changed from st.light to standard markdown notice block
         st.info("Your AI insights, summaries, and highlighted items will show up right here once you record and save audio.")
