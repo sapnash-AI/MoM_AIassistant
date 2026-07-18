@@ -50,7 +50,7 @@ with col_input:
     
     # Only run the pipeline if there is a new audio file recording
     if audio_file is not None and audio_file != st.session_state.last_processed_audio:
-        with st.spinner("Gemini is listening and analyzing the audio..."):
+        with st.spinner("Assistant is listening and analyzing the audio..."):
             try:
                 audio_bytes = audio_file.read()
                 
@@ -107,7 +107,7 @@ with col_input:
         st.text_area("Full text generated from speech:", st.session_state.transcript, height=250)
 
 with col_output:
-    st.subheader("💡 Gemini Post-Meeting Analysis")
+    st.subheader("💡 MoM- Post-Meeting Analysis")
     
     if st.session_state.summary or st.session_state.action_points:
         st.markdown("### 📌 Discussion Summary")
