@@ -5,7 +5,7 @@ from google.genai import types
 # --- Page Config & Styling ---
 st.set_page_config(page_title="Meeting Minutes AI (Gemini)", page_icon="🎙️", layout="wide")
 
-st.title("🎙️ Gemini Audio Meeting Minutes & Action Points")
+st.title("🎙️PWS- Meeting Summariser & Action Point Generator-Pilot Project")
 st.caption("Record live audio and leverage Gemini's native audio intelligence to transcribe, summarize, and highlight targets.")
 
 # --- API Configuration via Streamlit Secrets ---
