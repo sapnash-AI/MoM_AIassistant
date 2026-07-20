@@ -5,7 +5,7 @@ from google.genai import types
 # --- Page Config & Styling ---
 st.set_page_config(page_title="Multilingual Meeting Minutes AI", page_icon="🎙️", layout="wide")
 
-st.title("🎙️ Gemini Audio Meeting Minutes & Action Points")
+st.title("🎙️ PWS-Audio Meeting Minutes & Action Points")
 st.caption("Record live audio in English, Hindi, or a mix of both. Raw transcript matches speech, while insights are delivered in English.")
 
 # --- API Configuration via Streamlit Secrets ---
